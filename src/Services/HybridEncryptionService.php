@@ -4,6 +4,8 @@ namespace Jjoek\HybridEncryption\Services;
 
 use Jjoek\HybridEncryption\Exceptions\DecryptionException;
 use Jjoek\HybridEncryption\Exceptions\EncryptionConfigException;
+use phpseclib3\Crypt\RSA;
+use phpseclib3\Crypt\PublicKeyLoader;
 
 class HybridEncryptionService
 {
@@ -96,25 +98,25 @@ class HybridEncryptionService
      */
     private function decryptRsaOaep(string $encryptedKey): string
     {
-        $privateKeyResource = openssl_pkey_get_private($this->privateKey);
+        try {
+            $privateKey = PublicKeyLoader::load($this->privateKey);
 
-        if ($privateKeyResource === false) {
-            throw new DecryptionException('Failed to load private key: ' . openssl_error_string());
+            // Configure for RSA-OAEP with SHA-256 (matching Web Crypto API)
+            $privateKey = $privateKey
+                ->withPadding(RSA::ENCRYPTION_OAEP)
+                ->withHash('sha256')
+                ->withMGFHash('sha256');
+
+            $decryptedKey = $privateKey->decrypt($encryptedKey);
+
+            if ($decryptedKey === false) {
+                throw new DecryptionException('Failed to decrypt AES key with RSA-OAEP');
+            }
+
+            return $decryptedKey;
+        } catch (\Exception $e) {
+            throw new DecryptionException('Failed to decrypt AES key with RSA-OAEP: ' . $e->getMessage());
         }
-
-        $decryptedKey = '';
-        $success = openssl_private_decrypt(
-            $encryptedKey,
-            $decryptedKey,
-            $privateKeyResource,
-            OPENSSL_PKCS1_OAEP_PADDING
-        );
-
-        if (!$success) {
-            throw new DecryptionException('Failed to decrypt AES key with RSA-OAEP: ' . openssl_error_string());
-        }
-
-        return $decryptedKey;
     }
 
     /**
